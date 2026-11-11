@@ -11,13 +11,16 @@ Deux modes :
 Chaque recommandation est accompagnée d'une explication (compétences, critères,
 signal collaboratif) et d'une analyse des compétences manquantes.
 """
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
 
 from jobrec import hybrids as H
-from jobrec.data import History, JobPool, build_queries, load_jth, temporal_split
+from jobrec.data import (History, JobPool, build_queries, ensure_jth, load_jth,
+                         temporal_split)
 from jobrec.engines import Context
 from jobrec.evaluation import make_pool_fn, rank_order
 from jobrec.explain import explain
@@ -28,10 +31,18 @@ st.set_page_config(page_title="Recommandation d'offres d'emploi", page_icon="�
 SOURCE_LABEL = {"cb": "compétences (contenu)", "meta": "candidats similaires", "kb": "critères (connaissances)"}
 
 
+DATA_DIR = Path(__file__).parent / "data"
+
+
+@st.cache_resource(show_spinner="Téléchargement du dataset JTH depuis Zenodo (premier lancement, ~25 Mo)…")
+def get_data_dir():
+    return ensure_jth(DATA_DIR)
+
+
 @st.cache_resource(show_spinner="Chargement des données et des modèles…")
 def load_all():
-    D = load_jth("data")
-    cfg = joblib.load("models.joblib")
+    D = load_jth(get_data_dir())
+    cfg = joblib.load(Path(__file__).parent / "models.joblib")
     train, test = temporal_split(D.interactions, 0.8)
     hist = History(D.interactions, len(D.candidates), len(D.jobs))
     prof = Profiles(D.candidates, D.jobs, fit_cutoff_day=cfg["train_end"])
