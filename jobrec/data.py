@@ -131,6 +131,47 @@ class JTHData:
     cleaning_log: dict = field(default_factory=dict)
 
 
+ZENODO_RECORD = 21390581
+ZENODO_URL = "https://zenodo.org/api/records/{rec}/files/{name}/content"
+JTH_FILES = {  # nom -> empreinte SHA-256 de la version officielle (Zenodo 21390581)
+    "candidates.csv": "4328ceb1678757ce19b62105e97cca70759f38c332bef13cf9746badbbf3f692",
+    "jobs.csv": "5bcd9e4379e558b98418e2242d321757612a96887b934e0d3ece6eb4a9952628",
+    "history.csv": "0348bb0017156a91fe40fdd4346846982587940a0796dae3941da55312ade2a3",
+}
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def ensure_jth(data_dir: str | Path) -> Path:
+    """Télécharge les CSV JTH depuis Zenodo s'ils sont absents (licence CC BY-NC 4.0 :
+    les données ne sont pas versionnées dans le dépôt). Vérifie l'empreinte SHA-256."""
+    import urllib.request
+    data_dir = Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    for name, digest in JTH_FILES.items():
+        dest = data_dir / name
+        if dest.exists() and _sha256(dest) == digest:
+            continue
+        tmp = dest.with_suffix(".part")
+        req = urllib.request.Request(ZENODO_URL.format(rec=ZENODO_RECORD, name=name),
+                                     headers={"User-Agent": "hybrid-job-recommender"})
+        with urllib.request.urlopen(req, timeout=300) as resp, open(tmp, "wb") as fh:
+            while chunk := resp.read(1 << 20):
+                fh.write(chunk)
+        if _sha256(tmp) != digest:
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError(f"{name} : empreinte SHA-256 inattendue après téléchargement")
+        tmp.replace(dest)
+    return data_dir
+
+
 def load_jth(data_dir: str | Path) -> JTHData:
     data_dir = Path(data_dir)
     cand = pd.read_csv(data_dir / "candidates.csv", dtype=str)
